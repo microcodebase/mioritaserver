@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Q</title>
+<link rel="icon" type="image/png" href="/static/img/favicon.png" />
+<link rel="stylesheet" type="text/css" href="/static/css/common.css" />
+<script>
+appargv = {
+baseaddress: '/api/',
+dynamicmodules: '/static/js/',
+dynamicstylesheet: '/static/css/',
+appstartup: '../@projectname/main',
+remoteaddr: '127.0.0.1',
+}
+</script>
+</head>
+<body>
+<div id="container" class="react-app-container"></div>
+<script src="/static/js/react.js"></script>
+<script src="/static/js/depmod.js"></script>
+<script src="/static/js/common.js"></script>
+<script src="/static/js/@projectname.js"></script>
+<script src="/static/js/appstartup.js"></script>
+</body>
+</html>
