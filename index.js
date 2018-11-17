@@ -6,10 +6,6 @@ function formatLocal(utc) {
 	return iso.slice(0, 10) + ' ' + iso.slice(11, 19);
 }
 process.env.NODE_ENV = 'development'; // development production
-let jsDebug = true;
-let jsComments = false;
-let jsCompact = true;
-let lessCompress = true;
 const
 	path = require('path'),
 	fs = require('fs-extra'),
@@ -21,10 +17,14 @@ const
 	through = require('through'),
 	concat = require('concat-stream');
 
-let workspace;
+let jsDebug = true;
+let jsComments = false;
+let jsCompact = true;
+let lessCompress = true;
+let workspace = process.cwd();
+let forwardmap;
+let localmap;
 let commondir;
-let export_App;
-let buildconfig;
 let projectname;	// project folder name = bundle name
 let external = {};
 let exported = {};
@@ -42,29 +42,6 @@ function Initialize() {
 		if (err && err.code != 'EEXIST') {
 		}
 	});
-}
-
-function LoadProject(projdir) {
-	buildconfig = null;
-	export_App = null;
-	projectname = projdir;
-	const workdir = workspace + '/' + projectname;
-	try {
-		const jsonstr = fs.readFileSync(workdir + '/buildconfig.json', 'utf8');
-		buildconfig = JSON.parse(jsonstr);
-	} catch (err) {
-		console.error(err.message);
-		//console.error(err);
-		return;
-	}
-	let external_App = ['../' + projectname + '/main']; // Entry point
-	if (buildconfig.app) external_App = buildconfig.app;
-	export_App = [];
-	for(let i = 0; i<external_App.length; ++i) {
-		export_App.push({file: external_App[i] + '.jsx', expose: external_App[i]});
-		//export_App.push(external_App[i]);
-	}
-	console.log('Project: \x1b[97m\x1b[42m', projectname, '\x1b[0m');
 }
 
 function clean(cb) {
@@ -148,7 +125,7 @@ function transformator(file, options) {
 			return;
 		}
 		cachedb[file] = null;
-		console.log('\x1b[92mcompile:\x1b[0m', file);
+		console.log('\x1b[94mcompile:\x1b[0m', file);
 		let cacher = concat((d) => {
 			this.queue(d);
 			this.queue(null);
@@ -170,7 +147,11 @@ function onFile(file, id, parent) {
 	console.log('\x1b[92m', id, '\x1b[0m');
 }
 
-function makeBundle() {
+function makeBundle(projdir) {
+	projectname = projdir;
+	console.log('Project: \x1b[97m\x1b[42m', projectname, '\x1b[0m');
+	const EntryPoint = '../' + projectname + '/main';
+	const export_App = [{file: EntryPoint + '.jsx', expose: EntryPoint}];
 	cachedb = {};
 	bundleVector = [];
 	let b;
@@ -322,10 +303,10 @@ function processCommand(verb, cb) {
 function ShowActions(s) {
 	console.log();
 	console.log('0 - go to main menu');
-	console.log('9 - clean');
 	console.log('1 - build css');
 	console.log('2 - build js');
 	if (s) {
+		console.log('9 - clean');
 		console.log('80 - build common css');
 		console.log('81 - build common js');
 		console.log('82 - build startup app js');
@@ -372,7 +353,13 @@ function ReturnFile (filepath, response) {
 				}
 			} else {
 				response.writeHead(200, { 'Content-Type': mime });
-				response.end(data);
+				if (mime === "text/html") {
+					let txt = data.toString();
+					txt = txt.replace(/@projectname/g, projectname);
+					response.end(txt);
+				} else {
+					response.end(data);
+				}
 			}
 		});
 	} else {
@@ -447,9 +434,9 @@ function RemoteHandler(options, request, response) {
 }
 
 function CheckForward(url) {
-	if (buildconfig.forwardmap) {
-		for (let i = 0; i < buildconfig.forwardmap.length; ++i) {
-			let forward = buildconfig.forwardmap[i];
+	if (forwardmap) {
+		for (let i = 0; i < forwardmap.length; ++i) {
+			let forward = forwardmap[i];
 			if (forward.url === url.substr(0, forward.url.length)) {
 				let opt = {hostname: forward.host, port: forward.port || 80, path: forward.path + url.substr(forward.url.length)}
 				return opt;
@@ -458,9 +445,9 @@ function CheckForward(url) {
 	}
 }
 function CheckLocal(url) {
-	if (buildconfig.localmap) {
-		for(let i = 0; i < buildconfig.localmap.length; ++i) {
-			let forward = buildconfig.localmap[i];
+	if (localmap) {
+		for(let i = 0; i < localmap.length; ++i) {
+			let forward = localmap[i];
 			if (forward.url === url.substr(0, forward.url.length)) {
 				return forward.path + url.substr(forward.url.length);
 			}
@@ -484,7 +471,7 @@ function run() {
 			});
 			let method = request.method, url = request.url;
 			console.log(rn+' '+method+' '+url);
-			if (!buildconfig) {
+			if (!projectname) {
 				response.writeHead(500, {'Content-Type': 'text/plain'});
 				response.end('Please select the project !');
 				return;
@@ -496,7 +483,7 @@ function run() {
 					localfile = localfile.slice(0, i);
 				}
 				if(localfile === '/') {
-					ReturnFile('/' + projectname + '/index.html', response);
+					ReturnFile('/index.html', response);
 				} else {
 					let ok = Compile(localfile, response);
 					if (!ok) {
@@ -573,8 +560,7 @@ function SelectProject(data) {
 			--i;
 			process.stdout.write('\x1bc\x1b[0m');
 			appstate = 1;
-			LoadProject(projects[i]);
-			makeBundle();
+			makeBundle(projects[i]);
 			ShowActions();
 		}
 	}
@@ -626,21 +612,23 @@ function prepareModules(config) {
 
 function startup(config) {
 	console.log('started:', formatLocal(new Date()));
-
-	workspace = config.workspace;
+	if (config.workspace) {
+		workspace = config.workspace;
+		try {
+			process.chdir(workspace);
+		} catch (err) {
+			console.error(err.message);
+			console.error(workspace);
+			return;
+		}
+	}
+	console.log('workspace:\x1b[92m', workspace, '\x1b[0m');
+	forwardmap = config.forwardmap;
+	localmap = config.localmap;
 	commondir = workspace + '/' + config.commondir;
+
 	prepareModules(config);
 	prepareSource(config);
-
-	console.log('workspace:\x1b[92m', workspace, '\x1b[0m');
-	try {
-		process.chdir(workspace);
-	} catch (err) {
-		console.error(err.message);
-		console.error(workspace);
-		return;
-	}
-
 	Initialize();
 	run();
 	ShowProjects();
